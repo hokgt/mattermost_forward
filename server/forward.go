@@ -1,8 +1,133 @@
 package main
-import ("encoding/json"; "fmt"; "net/http"; "strings"; "github.com/mattermost/mattermost/server/public/model")
-func (p *Plugin) handleForward(w http.ResponseWriter, r *http.Request){ userID:=userIDFromRequest(r); if userID==""{writeError(w,http.StatusUnauthorized,"not_authenticated","You must be logged in."); return}; c:=p.getConfiguration(); if !c.EnablePlugin{writeError(w,http.StatusForbidden,"plugin_disabled","Message forwarding is disabled."); return}; var req ForwardRequest; if err:=json.NewDecoder(r.Body).Decode(&req); err!=nil{writeError(w,http.StatusBadRequest,"invalid_request","Invalid request body."); return}; req.TargetType=strings.ToLower(strings.TrimSpace(req.TargetType)); req.Note=strings.TrimSpace(req.Note); if req.PostID=="" || req.TargetID=="" || (req.TargetType!="channel" && req.TargetType!="user"){writeError(w,http.StatusBadRequest,"invalid_request","Post and target are required."); return}; if !req.IncludeText && !req.IncludeFiles{writeError(w,http.StatusBadRequest,"nothing_to_forward","Select message text, files, or both."); return}
-post,appErr:=p.API.GetPost(req.PostID); if appErr!=nil || post==nil || post.DeleteAt!=0 || post.Type!=""{writeError(w,http.StatusNotFound,"source_post_not_found","Source post was not found or cannot be forwarded."); return}; source,appErr:=p.API.GetChannel(post.ChannelId); if appErr!=nil || source==nil || source.DeleteAt!=0{writeError(w,http.StatusNotFound,"source_channel_not_found","Source channel was not found."); return}; if !sourceTypeAllowed(c,source.Type){writeError(w,http.StatusForbidden,"source_type_disabled","Forwarding from this conversation type is disabled."); return}; if !p.canReadSource(userID,source){writeError(w,http.StatusForbidden,"permission_denied","You do not have permission to read the source message."); return}
-target,targetKind,msg:=p.resolveTarget(req.TargetType,req.TargetID,userID); if msg!=""{writeError(w,http.StatusBadRequest,"target_not_found",msg); return}; if !p.canPostTarget(userID,target){writeError(w,http.StatusForbidden,"permission_denied","You do not have permission to post in the selected target."); return}
-originalUser,_:=p.API.GetUser(post.UserId); forwardUser,_:=p.API.GetUser(userID); copied:=[]string{}; if req.IncludeFiles { if !c.AllowFileForwarding{writeError(w,http.StatusForbidden,"file_forwarding_disabled","File forwarding is disabled."); return}; if len(post.FileIds)==0{req.IncludeFiles=false}else{ if len(post.FileIds)>c.MaxFilesPerForward{writeError(w,http.StatusBadRequest,"too_many_files",fmt.Sprintf("This message has more than %d files.",c.MaxFilesPerForward)); return}; if c.MaxFileSizeMB>0{max:=int64(c.MaxFileSizeMB)*1024*1024; for _,fid:=range post.FileIds{info,appErr:=p.API.GetFileInfo(fid); if appErr!=nil || info==nil{writeError(w,http.StatusBadRequest,"file_not_found","One of the attached files could not be read."); return}; if info.Size>max{writeError(w,http.StatusBadRequest,"file_too_large",fmt.Sprintf("File %s is larger than the configured limit.",info.Name)); return}}}; ids,appErr:=p.API.CopyFileInfos(userID,post.FileIds); if appErr!=nil{writeError(w,http.StatusInternalServerError,"file_copy_failed","Could not copy attached files."); return}; copied=ids } }
-newPost,appErr:=p.API.CreatePost(&model.Post{UserId:userID,ChannelId:target.Id,Message:buildForwardedMessage(post,source,originalUser,forwardUser,req.Note,req.IncludeText),FileIds:copied}); if appErr!=nil || newPost==nil{writeError(w,http.StatusInternalServerError,"create_post_failed","Could not create the forwarded post."); return}; rec:=&AuditRecord{ID:model.NewId(),OriginalPostID:post.Id,SourceChannelID:source.Id,SourceChannelType:string(source.Type),OriginalUserID:post.UserId,ForwardedByUserID:userID,TargetChannelID:target.Id,TargetType:targetKind,NewPostID:newPost.Id,IncludedText:req.IncludeText,IncludedFiles:len(copied)>0,FileCount:len(copied),CreatedAt:model.GetMillis()}; if err:=p.saveAuditRecord(rec); err!=nil{p.API.LogWarn("Failed to save forward audit record","error",err.Error())}; writeJSON(w,http.StatusOK,ForwardResponse{true,newPost.Id,target.Id}) }
-func (p *Plugin) resolveTarget(targetType,targetID,userID string)(*model.Channel,string,string){ if targetType=="channel"{ch,appErr:=p.API.GetChannel(targetID); if appErr!=nil || ch==nil || ch.DeleteAt!=0{return nil,"","Target channel was not found."}; if ch.Type!=model.ChannelTypeOpen && ch.Type!=model.ChannelTypePrivate{return nil,"","Target channel type is not supported."}; return ch,"channel",""}; if targetID==userID{return nil,"","Choose another user as the DM target."}; if u,appErr:=p.API.GetUser(targetID); appErr!=nil || u==nil || u.DeleteAt!=0{return nil,"","Target user was not found."}; ch,appErr:=p.API.GetDirectChannel(userID,targetID); if appErr!=nil || ch==nil{return nil,"","Could not create or access the target DM."}; return ch,"dm","" }
+
+import (
+	"encoding/json"
+	"fmt"
+	"github.com/mattermost/mattermost/server/public/model"
+	"net/http"
+	"strings"
+)
+
+func (p *Plugin) handleForward(w http.ResponseWriter, r *http.Request, userID string) {
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "not_authenticated", "You must be logged in.")
+		return
+	}
+	c := p.getConfiguration()
+	if !c.EnablePlugin {
+		writeError(w, http.StatusForbidden, "plugin_disabled", "Message forwarding is disabled.")
+		return
+	}
+	var req ForwardRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", "Invalid request body.")
+		return
+	}
+	req.TargetType = strings.ToLower(strings.TrimSpace(req.TargetType))
+	req.Note = strings.TrimSpace(req.Note)
+	if req.PostID == "" || req.TargetID == "" || (req.TargetType != "channel" && req.TargetType != "user") {
+		writeError(w, http.StatusBadRequest, "invalid_request", "Post and target are required.")
+		return
+	}
+	if !req.IncludeText && !req.IncludeFiles {
+		writeError(w, http.StatusBadRequest, "nothing_to_forward", "Select message text, files, or both.")
+		return
+	}
+	post, appErr := p.API.GetPost(req.PostID)
+	if appErr != nil || post == nil || post.DeleteAt != 0 || post.Type != "" {
+		writeError(w, http.StatusNotFound, "source_post_not_found", "Source post was not found or cannot be forwarded.")
+		return
+	}
+	source, appErr := p.API.GetChannel(post.ChannelId)
+	if appErr != nil || source == nil || source.DeleteAt != 0 {
+		writeError(w, http.StatusNotFound, "source_channel_not_found", "Source channel was not found.")
+		return
+	}
+	if !sourceTypeAllowed(c, source.Type) {
+		writeError(w, http.StatusForbidden, "source_type_disabled", "Forwarding from this conversation type is disabled.")
+		return
+	}
+	if !p.canReadSource(userID, source) {
+		writeError(w, http.StatusForbidden, "permission_denied", "You do not have permission to read the source message.")
+		return
+	}
+	target, targetKind, msg := p.resolveTarget(req.TargetType, req.TargetID, userID)
+	if msg != "" {
+		writeError(w, http.StatusBadRequest, "target_not_found", msg)
+		return
+	}
+	if !p.canPostTarget(userID, target) {
+		writeError(w, http.StatusForbidden, "permission_denied", "You do not have permission to post in the selected target.")
+		return
+	}
+	originalUser, _ := p.API.GetUser(post.UserId)
+	forwardUser, _ := p.API.GetUser(userID)
+	copied := []string{}
+	if req.IncludeFiles {
+		if !c.AllowFileForwarding {
+			writeError(w, http.StatusForbidden, "file_forwarding_disabled", "File forwarding is disabled.")
+			return
+		}
+		if len(post.FileIds) == 0 {
+			req.IncludeFiles = false
+		} else {
+			if len(post.FileIds) > c.MaxFilesPerForward {
+				writeError(w, http.StatusBadRequest, "too_many_files", fmt.Sprintf("This message has more than %d files.", c.MaxFilesPerForward))
+				return
+			}
+			if c.MaxFileSizeMB > 0 {
+				max := int64(c.MaxFileSizeMB) * 1024 * 1024
+				for _, fid := range post.FileIds {
+					info, appErr := p.API.GetFileInfo(fid)
+					if appErr != nil || info == nil {
+						writeError(w, http.StatusBadRequest, "file_not_found", "One of the attached files could not be read.")
+						return
+					}
+					if info.Size > max {
+						writeError(w, http.StatusBadRequest, "file_too_large", fmt.Sprintf("File %s is larger than the configured limit.", info.Name))
+						return
+					}
+				}
+			}
+			ids, appErr := p.API.CopyFileInfos(userID, post.FileIds)
+			if appErr != nil {
+				writeError(w, http.StatusInternalServerError, "file_copy_failed", "Could not copy attached files.")
+				return
+			}
+			copied = ids
+		}
+	}
+	newPost, appErr := p.API.CreatePost(&model.Post{UserId: userID, ChannelId: target.Id, Message: buildForwardedMessage(post, source, originalUser, forwardUser, req.Note, req.IncludeText), FileIds: copied})
+	if appErr != nil || newPost == nil {
+		writeError(w, http.StatusInternalServerError, "create_post_failed", "Could not create the forwarded post.")
+		return
+	}
+	rec := &AuditRecord{ID: model.NewId(), OriginalPostID: post.Id, SourceChannelID: source.Id, SourceChannelType: string(source.Type), OriginalUserID: post.UserId, ForwardedByUserID: userID, TargetChannelID: target.Id, TargetType: targetKind, NewPostID: newPost.Id, IncludedText: req.IncludeText, IncludedFiles: len(copied) > 0, FileCount: len(copied), CreatedAt: model.GetMillis()}
+	if err := p.saveAuditRecord(rec); err != nil {
+		p.API.LogWarn("Failed to save forward audit record", "error", err.Error())
+	}
+	writeJSON(w, http.StatusOK, ForwardResponse{true, newPost.Id, target.Id})
+}
+func (p *Plugin) resolveTarget(targetType, targetID, userID string) (*model.Channel, string, string) {
+	if targetType == "channel" {
+		ch, appErr := p.API.GetChannel(targetID)
+		if appErr != nil || ch == nil || ch.DeleteAt != 0 {
+			return nil, "", "Target channel was not found."
+		}
+		if ch.Type != model.ChannelTypeOpen && ch.Type != model.ChannelTypePrivate {
+			return nil, "", "Target channel type is not supported."
+		}
+		return ch, "channel", ""
+	}
+	if targetID == userID {
+		return nil, "", "Choose another user as the DM target."
+	}
+	if u, appErr := p.API.GetUser(targetID); appErr != nil || u == nil || u.DeleteAt != 0 {
+		return nil, "", "Target user was not found."
+	}
+	ch, appErr := p.API.GetDirectChannel(userID, targetID)
+	if appErr != nil || ch == nil {
+		return nil, "", "Could not create or access the target DM."
+	}
+	return ch, "dm", ""
+}
