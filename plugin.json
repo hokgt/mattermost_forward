@@ -1,0 +1,77 @@
+{
+  "id": "com.wijayacorp.message-forward",
+  "version": "0.1.0",
+  "name": "Wijaya Message Forward",
+  "description": "Forward Mattermost messages and attached files to another channel or DM with clear attribution.",
+  "homepage_url": "https://github.com/hokgt/wijaya-message-forward",
+  "support_url": "https://github.com/hokgt/wijaya-message-forward/issues",
+  "icon_path": "assets/icon.svg",
+  "min_server_version": "7.1.0",
+  "server": {
+    "executables": {
+      "linux-amd64": "server/dist/plugin-linux-amd64",
+      "linux-arm64": "server/dist/plugin-linux-arm64",
+      "darwin-amd64": "server/dist/plugin-darwin-amd64",
+      "darwin-arm64": "server/dist/plugin-darwin-arm64",
+      "windows-amd64": "server/dist/plugin-windows-amd64.exe"
+    }
+  },
+  "webapp": {
+    "bundle_path": "webapp/dist/main.js"
+  },
+  "settings_schema": {
+    "header": "Configure Wijaya Message Forward.",
+    "footer": "Forwarding always includes attribution and respects source/target permissions.",
+    "settings": [
+      {
+        "key": "EnablePlugin",
+        "display_name": "Enable Plugin",
+        "type": "bool",
+        "help_text": "Allow users to forward eligible messages.",
+        "default": true
+      },
+      {
+        "key": "AllowForwardFromPublicChannels",
+        "display_name": "Allow Forward From Public Channels",
+        "type": "bool",
+        "help_text": "Allow forwarding messages from public channels.",
+        "default": true
+      },
+      {
+        "key": "AllowForwardFromPrivateChannels",
+        "display_name": "Allow Forward From Private Channels",
+        "type": "bool",
+        "help_text": "Allow forwarding messages from private channels when the user is a member.",
+        "default": true
+      },
+      {
+        "key": "AllowForwardFromDirectMessages",
+        "display_name": "Allow Forward From Direct Messages",
+        "type": "bool",
+        "help_text": "Allow forwarding messages from direct/group messages when the user is a participant.",
+        "default": true
+      },
+      {
+        "key": "AllowFileForwarding",
+        "display_name": "Allow File Forwarding",
+        "type": "bool",
+        "help_text": "Allow forwarding attached files by copying Mattermost file metadata.",
+        "default": true
+      },
+      {
+        "key": "MaxFilesPerForward",
+        "display_name": "Max Files Per Forward",
+        "type": "number",
+        "help_text": "Maximum attached files allowed per forward.",
+        "default": 10
+      },
+      {
+        "key": "MaxFileSizeMB",
+        "display_name": "Max File Size MB",
+        "type": "number",
+        "help_text": "Maximum size per forwarded file. Use 0 to rely on Mattermost defaults.",
+        "default": 100
+      }
+    ]
+  }
+}

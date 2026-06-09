@@ -1,0 +1,1 @@
+export type TargetType='channel'|'user';export type TargetOption={type:TargetType;id:string;name:string;display_name:string};export type ForwardRequest={post_id:string;target_type:TargetType;target_id:string;include_text:boolean;include_files:boolean;note:string};

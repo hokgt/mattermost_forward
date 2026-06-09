@@ -1,0 +1,5 @@
+package main
+import ("strings"; "testing"; "github.com/mattermost/mattermost/server/public/model")
+func TestSourceTypeAllowed(t *testing.T){c:=defaultConfiguration(); if !sourceTypeAllowed(c,model.ChannelTypeOpen)||!sourceTypeAllowed(c,model.ChannelTypePrivate)||!sourceTypeAllowed(c,model.ChannelTypeDirect)||!sourceTypeAllowed(c,model.ChannelTypeGroup){t.Fatal("defaults should allow")}; c.AllowForwardFromDirectMessages=false; if sourceTypeAllowed(c,model.ChannelTypeDirect)||sourceTypeAllowed(c,model.ChannelTypeGroup){t.Fatal("dm should be disabled")}}
+func TestQuoteMessage(t *testing.T){ if got:=quoteMessage("one\ntwo"); got!="> one\n> two"{t.Fatalf("unexpected %q",got)} }
+func TestBuildForwardedMessage(t *testing.T){got:=buildForwardedMessage(&model.Post{Message:"hello",CreateAt:1710000000000},&model.Channel{DisplayName:"HR Interview"},&model.User{Username:"bob"},&model.User{Username:"alice"},"Please review",true); for _,want:=range []string{"**Forwarded by:** @alice","**Original sender:** @bob","**From:** HR Interview","**Note from @alice:**","> hello"}{ if !strings.Contains(got,want){t.Fatalf("missing %q in %s",want,got)}}}
