@@ -34,8 +34,12 @@ func (p *Plugin) handleForward(w http.ResponseWriter, r *http.Request, userID st
 		return
 	}
 	post, appErr := p.API.GetPost(req.PostID)
-	if appErr != nil || post == nil || post.DeleteAt != 0 || post.Type != "" {
+	if appErr != nil || post == nil || post.DeleteAt != 0 {
 		writeError(w, http.StatusNotFound, "source_post_not_found", "Source post was not found or cannot be forwarded.")
+		return
+	}
+	if strings.HasPrefix(post.Type, "system_") {
+		writeError(w, http.StatusBadRequest, "source_post_not_forwardable", "System messages cannot be forwarded.")
 		return
 	}
 	source, appErr := p.API.GetChannel(post.ChannelId)
