@@ -1,6 +1,6 @@
 {
   "id": "com.wijayacorp.message-forward",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "name": "Wijaya Message Forward",
   "description": "Forward Mattermost messages and attached files to another channel or DM with clear attribution.",
   "homepage_url": "https://github.com/hokgt/wijaya-message-forward",

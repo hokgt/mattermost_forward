@@ -59,3 +59,21 @@ func TestHandleTargetsFindsJoinedChannelsWhenTeamIDMissing(t *testing.T) {
 	}
 	api.AssertExpectations(t)
 }
+
+func TestDisambiguateDuplicateChannelLabels(t *testing.T) {
+	targets := []TargetOption{
+		{Type: "channel", ID: "channel1", Name: "frappe-auto-packing-list", DisplayName: "#Autofetch Packing List"},
+		{Type: "channel", ID: "channel2", Name: "frappe-autofetch", DisplayName: "#Autofetch Packing List"},
+		{Type: "user", ID: "user2", Name: "auto", DisplayName: "@auto"},
+	}
+	disambiguateDuplicateChannelLabels(targets)
+	if targets[0].DisplayName != "#Autofetch Packing List (frappe-auto-packing-list)" {
+		t.Fatalf("unexpected first label: %q", targets[0].DisplayName)
+	}
+	if targets[1].DisplayName != "#Autofetch Packing List (frappe-autofetch)" {
+		t.Fatalf("unexpected second label: %q", targets[1].DisplayName)
+	}
+	if targets[2].DisplayName != "@auto" {
+		t.Fatalf("user target should not change: %q", targets[2].DisplayName)
+	}
+}

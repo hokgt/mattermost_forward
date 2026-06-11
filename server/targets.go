@@ -40,7 +40,22 @@ func (p *Plugin) handleTargets(w http.ResponseWriter, r *http.Request, userID st
 			}
 		}
 	}
+	disambiguateDuplicateChannelLabels(targets)
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "targets": targets})
+}
+
+func disambiguateDuplicateChannelLabels(targets []TargetOption) {
+	counts := map[string]int{}
+	for _, target := range targets {
+		if target.Type == "channel" {
+			counts[target.DisplayName]++
+		}
+	}
+	for i := range targets {
+		if targets[i].Type == "channel" && counts[targets[i].DisplayName] > 1 && targets[i].Name != "" {
+			targets[i].DisplayName = targets[i].DisplayName + " (" + targets[i].Name + ")"
+		}
+	}
 }
 
 func (p *Plugin) appendChannelTargets(targets []TargetOption, userID, term string, channels []*model.Channel, seen map[string]bool) []TargetOption {
