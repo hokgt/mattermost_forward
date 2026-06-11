@@ -4,12 +4,16 @@ go 1.23.0
 
 toolchain go1.23.10
 
-require github.com/mattermost/mattermost/server/public v0.1.12
+require (
+	github.com/mattermost/mattermost/server/public v0.1.12
+	github.com/stretchr/testify v1.10.0
+)
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/beevik/etree v1.1.0 // indirect
 	github.com/blang/semver/v4 v4.0.0 // indirect
+	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dyatlov/go-opengraph/opengraph v0.0.0-20220524092352-606d7b1e5f8a // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/francoispqt/gojay v1.2.13 // indirect
@@ -37,7 +41,9 @@ require (
 	github.com/pelletier/go-toml v1.9.5 // indirect
 	github.com/philhofer/fwd v1.1.3-0.20240916144458-20a13a1f6b7c // indirect
 	github.com/pkg/errors v0.9.1 // indirect
+	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/russellhaering/goxmldsig v1.2.0 // indirect
+	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/tinylib/msgp v1.2.5 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
