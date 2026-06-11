@@ -29,6 +29,7 @@ func TestHandleTargetsFindsJoinedChannelsWhenTeamIDMissing(t *testing.T) {
 	api.On("GetChannelsForTeamForUser", "", "user1", false).Return([]*model.Channel{
 		{Id: "channel1", Name: "ops-alerts", DisplayName: "Operations Alerts", Type: model.ChannelTypeOpen},
 	}, (*model.AppError)(nil)).Once()
+	api.On("GetChannelMember", "channel1", "user1").Return(&model.ChannelMember{ChannelId: "channel1", UserId: "user1"}, (*model.AppError)(nil)).Once()
 	api.On("HasPermissionToChannel", "user1", "channel1", model.PermissionCreatePost).Return(true).Once()
 	api.On("SearchUsers", mock.MatchedBy(func(search *model.UserSearch) bool {
 		return search != nil && search.Term == "operations" && search.Limit == 20 && !search.AllowInactive
@@ -76,4 +77,39 @@ func TestDisambiguateDuplicateChannelLabels(t *testing.T) {
 	if targets[2].DisplayName != "@auto" {
 		t.Fatalf("user target should not change: %q", targets[2].DisplayName)
 	}
+}
+
+func TestHandleTargetsSkipsUnjoinedSearchChannels(t *testing.T) {
+	api := &plugintest.API{}
+	teamID := "team1"
+	api.On("SearchChannels", teamID, "auto").Return([]*model.Channel{
+		{Id: "joined", Name: "frappe-auto-packing-list", DisplayName: "Autofetch Packing List", Type: model.ChannelTypeOpen},
+		{Id: "unjoined", Name: "frappe-autofetch", DisplayName: "Autofetch Packing List", Type: model.ChannelTypeOpen},
+	}, (*model.AppError)(nil)).Once()
+	api.On("GetChannelMember", "joined", "user1").Return(&model.ChannelMember{ChannelId: "joined", UserId: "user1"}, (*model.AppError)(nil)).Once()
+	api.On("HasPermissionToChannel", "user1", "joined", model.PermissionCreatePost).Return(true).Once()
+	api.On("GetChannelMember", "unjoined", "user1").Return((*model.ChannelMember)(nil), model.NewAppError("test", "not_found", nil, "", 404)).Once()
+	api.On("GetChannelsForTeamForUser", teamID, "user1", false).Return([]*model.Channel{
+		{Id: "joined", Name: "frappe-auto-packing-list", DisplayName: "Autofetch Packing List", Type: model.ChannelTypeOpen},
+	}, (*model.AppError)(nil)).Once()
+	api.On("SearchUsers", mock.Anything).Return([]*model.User{}, (*model.AppError)(nil)).Once()
+
+	p := &Plugin{}
+	p.API = api
+
+	req := httptest.NewRequest("GET", "/api/v1/targets?q=auto&team_id="+teamID, nil)
+	rec := httptest.NewRecorder()
+	p.handleTargets(rec, req, "user1")
+
+	var body struct {
+		Success bool           `json:"success"`
+		Targets []TargetOption `json:"targets"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Targets) != 1 || body.Targets[0].ID != "joined" {
+		t.Fatalf("expected only joined channel target, got %+v", body.Targets)
+	}
+	api.AssertExpectations(t)
 }
