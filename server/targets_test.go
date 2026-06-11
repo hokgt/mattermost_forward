@@ -32,8 +32,9 @@ func TestHandleTargetsFindsJoinedChannelsWhenTeamIDMissing(t *testing.T) {
 	api.On("GetChannelMember", "channel1", "user1").Return(&model.ChannelMember{ChannelId: "channel1", UserId: "user1"}, (*model.AppError)(nil)).Once()
 	api.On("HasPermissionToChannel", "user1", "channel1", model.PermissionCreatePost).Return(true).Once()
 	api.On("SearchUsers", mock.MatchedBy(func(search *model.UserSearch) bool {
-		return search != nil && search.Term == "operations" && search.Limit == 20 && !search.AllowInactive
+		return search != nil && search.Term == "operations" && search.Limit == 50 && !search.AllowInactive
 	})).Return([]*model.User{}, (*model.AppError)(nil)).Once()
+	api.On("GetUsers", mock.Anything).Return([]*model.User{}, (*model.AppError)(nil)).Once()
 
 	p := &Plugin{}
 	p.API = api
@@ -93,6 +94,7 @@ func TestHandleTargetsSkipsUnjoinedSearchChannels(t *testing.T) {
 		{Id: "joined", Name: "frappe-auto-packing-list", DisplayName: "Autofetch Packing List", Type: model.ChannelTypeOpen},
 	}, (*model.AppError)(nil)).Once()
 	api.On("SearchUsers", mock.Anything).Return([]*model.User{}, (*model.AppError)(nil)).Once()
+	api.On("GetUsers", mock.Anything).Return([]*model.User{}, (*model.AppError)(nil)).Once()
 
 	p := &Plugin{}
 	p.API = api
@@ -110,6 +112,40 @@ func TestHandleTargetsSkipsUnjoinedSearchChannels(t *testing.T) {
 	}
 	if len(body.Targets) != 1 || body.Targets[0].ID != "joined" {
 		t.Fatalf("expected only joined channel target, got %+v", body.Targets)
+	}
+	api.AssertExpectations(t)
+}
+
+func TestUserMatchesForwardSearchFullName(t *testing.T) {
+	u := &model.User{Username: "hok", FirstName: "Suhendri", LastName: "Wijaya"}
+	for _, term := range []string{"@hok", "hok", "suhendri", "wijaya", "Suhendri Wijaya"} {
+		if !userMatchesForwardSearch(u, term) {
+			t.Fatalf("expected %q to match user", term)
+		}
+	}
+	if userForwardLabel(u) != "@hok — Suhendri Wijaya" {
+		t.Fatalf("unexpected label: %q", userForwardLabel(u))
+	}
+}
+
+func TestAppendUserTargetsIncludesFullNameMatches(t *testing.T) {
+	api := &plugintest.API{}
+	api.On("SearchUsers", mock.MatchedBy(func(search *model.UserSearch) bool {
+		return search != nil && search.Term == "Suhendri" && search.Limit == 50 && !search.AllowInactive
+	})).Return([]*model.User{}, (*model.AppError)(nil)).Once()
+	api.On("GetUsers", mock.MatchedBy(func(options *model.UserGetOptions) bool {
+		return options != nil && options.Active && options.Page == 0 && options.PerPage == 200
+	})).Return([]*model.User{
+		{Id: "target", Username: "hok", FirstName: "Suhendri", LastName: "Wijaya"},
+	}, (*model.AppError)(nil)).Once()
+	api.On("GetTeamMember", "team1", "user1").Return(activeTeamMember("team1", "user1"), (*model.AppError)(nil)).Once()
+	api.On("GetTeamMember", "team1", "target").Return(activeTeamMember("team1", "target"), (*model.AppError)(nil)).Once()
+
+	p := &Plugin{}
+	p.API = api
+	targets := p.appendUserTargets(nil, "user1", "team1", "Suhendri")
+	if len(targets) != 1 || targets[0].ID != "target" || targets[0].DisplayName != "@hok — Suhendri Wijaya" {
+		t.Fatalf("unexpected targets: %+v", targets)
 	}
 	api.AssertExpectations(t)
 }

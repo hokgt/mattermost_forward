@@ -1,5 +1,5 @@
 PLUGIN_ID ?= com.wijayacorp.message-forward
-PLUGIN_VERSION ?= 0.1.11
+PLUGIN_VERSION ?= 0.1.12
 BUNDLE_NAME := $(PLUGIN_ID)-$(PLUGIN_VERSION).tar.gz
 BUILD_HASH = $(shell git rev-parse HEAD 2>/dev/null || echo "none")
 BUILD_DATE = $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")

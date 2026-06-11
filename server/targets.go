@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/mattermost/mattermost/server/public/model"
@@ -31,17 +32,7 @@ func (p *Plugin) handleTargets(w http.ResponseWriter, r *http.Request, userID st
 			targets = p.appendChannelTargets(targets, userID, term, channels, seen)
 		}
 
-		if users, err := p.API.SearchUsers(&model.UserSearch{Term: term, Limit: 20, AllowInactive: false}); err == nil {
-			for _, u := range users {
-				if u == nil || u.Id == userID || u.DeleteAt != 0 {
-					continue
-				}
-				if !p.usersShareTargetTeam(userID, u.Id, teamID) {
-					continue
-				}
-				targets = append(targets, TargetOption{"user", u.Id, u.Username, "@" + u.Username})
-			}
-		}
+		targets = p.appendUserTargets(targets, userID, teamID, term)
 	}
 	disambiguateDuplicateChannelLabels(targets)
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "targets": targets})
@@ -91,4 +82,67 @@ func channelForwardLabel(ch *model.Channel) string {
 		label = "#" + ch.DisplayName
 	}
 	return label
+}
+
+func (p *Plugin) appendUserTargets(targets []TargetOption, userID, teamID, term string) []TargetOption {
+	usersByID := map[string]*model.User{}
+	if users, err := p.API.SearchUsers(&model.UserSearch{Term: term, Limit: 50, AllowInactive: false}); err == nil {
+		for _, u := range users {
+			if u != nil {
+				usersByID[u.Id] = u
+			}
+		}
+	}
+	if users, err := p.API.GetUsers(&model.UserGetOptions{Active: true, Page: 0, PerPage: 200}); err == nil {
+		for _, u := range users {
+			if u != nil && userMatchesForwardSearch(u, term) {
+				usersByID[u.Id] = u
+			}
+		}
+	}
+	users := make([]*model.User, 0, len(usersByID))
+	for _, u := range usersByID {
+		if u == nil || u.Id == userID || u.DeleteAt != 0 {
+			continue
+		}
+		if !p.usersShareTargetTeam(userID, u.Id, teamID) {
+			continue
+		}
+		users = append(users, u)
+	}
+	sort.Slice(users, func(i, j int) bool {
+		return strings.ToLower(userForwardLabel(users[i])) < strings.ToLower(userForwardLabel(users[j]))
+	})
+	for _, u := range users {
+		targets = append(targets, TargetOption{"user", u.Id, u.Username, userForwardLabel(u)})
+	}
+	return targets
+}
+
+func userMatchesForwardSearch(u *model.User, term string) bool {
+	needle := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(term, "@")))
+	if needle == "" || u == nil {
+		return false
+	}
+	fields := []string{u.Username, u.Nickname, u.FirstName, u.LastName, strings.TrimSpace(u.FirstName + " " + u.LastName)}
+	for _, field := range fields {
+		if strings.Contains(strings.ToLower(field), needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func userForwardLabel(u *model.User) string {
+	if u == nil {
+		return ""
+	}
+	fullName := strings.TrimSpace(u.FirstName + " " + u.LastName)
+	if fullName != "" {
+		return "@" + u.Username + " — " + fullName
+	}
+	if strings.TrimSpace(u.Nickname) != "" {
+		return "@" + u.Username + " — " + u.Nickname
+	}
+	return "@" + u.Username
 }
