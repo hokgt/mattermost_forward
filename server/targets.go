@@ -25,15 +25,18 @@ func (p *Plugin) handleTargets(w http.ResponseWriter, r *http.Request, userID st
 
 		// Mattermost's webapp can provide an empty currentTeamId from DM/GM contexts,
 		// and SearchChannels can miss private/joined channels depending on server search
-		// behavior. Always supplement from the user's joined channels; an empty teamID
-		// asks Mattermost for channels across all of the user's teams.
-		if channels, err := p.API.GetChannelsForTeamForUser(teamID, userID, false); err == nil {
+		// behavior. Supplement from the user's joined channels across all teams so users
+		// can forward to channels in other groups where they are already a member.
+		if channels, err := p.API.GetChannelsForTeamForUser("", userID, false); err == nil {
 			targets = p.appendChannelTargets(targets, userID, term, channels, seen)
 		}
 
 		if users, err := p.API.SearchUsers(&model.UserSearch{Term: term, Limit: 20, AllowInactive: false}); err == nil {
 			for _, u := range users {
 				if u == nil || u.Id == userID || u.DeleteAt != 0 {
+					continue
+				}
+				if !p.usersShareTargetTeam(userID, u.Id, teamID) {
 					continue
 				}
 				targets = append(targets, TargetOption{"user", u.Id, u.Username, "@" + u.Username})

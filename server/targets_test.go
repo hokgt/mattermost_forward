@@ -89,7 +89,7 @@ func TestHandleTargetsSkipsUnjoinedSearchChannels(t *testing.T) {
 	api.On("GetChannelMember", "joined", "user1").Return(&model.ChannelMember{ChannelId: "joined", UserId: "user1"}, (*model.AppError)(nil)).Once()
 	api.On("HasPermissionToChannel", "user1", "joined", model.PermissionCreatePost).Return(true).Once()
 	api.On("GetChannelMember", "unjoined", "user1").Return((*model.ChannelMember)(nil), model.NewAppError("test", "not_found", nil, "", 404)).Once()
-	api.On("GetChannelsForTeamForUser", teamID, "user1", false).Return([]*model.Channel{
+	api.On("GetChannelsForTeamForUser", "", "user1", false).Return([]*model.Channel{
 		{Id: "joined", Name: "frappe-auto-packing-list", DisplayName: "Autofetch Packing List", Type: model.ChannelTypeOpen},
 	}, (*model.AppError)(nil)).Once()
 	api.On("SearchUsers", mock.Anything).Return([]*model.User{}, (*model.AppError)(nil)).Once()

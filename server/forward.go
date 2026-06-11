@@ -24,6 +24,7 @@ func (p *Plugin) handleForward(w http.ResponseWriter, r *http.Request, userID st
 		return
 	}
 	req.TargetType = strings.ToLower(strings.TrimSpace(req.TargetType))
+	req.TargetTeamID = strings.TrimSpace(req.TargetTeamID)
 	req.Note = strings.TrimSpace(req.Note)
 	if req.PostID == "" || req.TargetID == "" || (req.TargetType != "channel" && req.TargetType != "user") {
 		writeError(w, http.StatusBadRequest, "invalid_request", "Post and target are required.")
@@ -55,7 +56,7 @@ func (p *Plugin) handleForward(w http.ResponseWriter, r *http.Request, userID st
 		writeError(w, http.StatusForbidden, "permission_denied", "You do not have permission to read the source message.")
 		return
 	}
-	target, targetKind, msg := p.resolveTarget(req.TargetType, req.TargetID, userID)
+	target, targetKind, msg := p.resolveTarget(req.TargetType, req.TargetID, userID, req.TargetTeamID)
 	if msg != "" {
 		writeError(w, http.StatusBadRequest, "target_not_found", msg)
 		return
@@ -112,7 +113,7 @@ func (p *Plugin) handleForward(w http.ResponseWriter, r *http.Request, userID st
 	}
 	writeJSON(w, http.StatusOK, ForwardResponse{true, newPost.Id, target.Id})
 }
-func (p *Plugin) resolveTarget(targetType, targetID, userID string) (*model.Channel, string, string) {
+func (p *Plugin) resolveTarget(targetType, targetID, userID, targetTeamID string) (*model.Channel, string, string) {
 	if targetType == "channel" {
 		ch, appErr := p.API.GetChannel(targetID)
 		if appErr != nil || ch == nil || ch.DeleteAt != 0 {
@@ -128,6 +129,9 @@ func (p *Plugin) resolveTarget(targetType, targetID, userID string) (*model.Chan
 	}
 	if u, appErr := p.API.GetUser(targetID); appErr != nil || u == nil || u.DeleteAt != 0 {
 		return nil, "", "Target user was not found."
+	}
+	if !p.usersShareTargetTeam(userID, targetID, targetTeamID) {
+		return nil, "", "Target user is not in a team/group you are allowed to forward to."
 	}
 	ch, appErr := p.API.GetDirectChannel(userID, targetID)
 	if appErr != nil || ch == nil {
