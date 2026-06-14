@@ -1,18 +1,27 @@
 package main
 
+type ForwardTargetRequest struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
+}
+
 type ForwardRequest struct {
-	PostID       string `json:"post_id"`
-	TargetType   string `json:"target_type"`
-	TargetID     string `json:"target_id"`
-	TargetTeamID string `json:"team_id"`
-	IncludeText  bool   `json:"include_text"`
-	IncludeFiles bool   `json:"include_files"`
-	Note         string `json:"note"`
+	PostID       string                 `json:"post_id"`
+	TargetType   string                 `json:"target_type"`
+	TargetID     string                 `json:"target_id"`
+	Targets      []ForwardTargetRequest `json:"targets"`
+	TargetTeamID string                 `json:"team_id"`
+	IncludeText  bool                   `json:"include_text"`
+	IncludeFiles bool                   `json:"include_files"`
+	Note         string                 `json:"note"`
 }
 type ForwardResponse struct {
-	Success         bool   `json:"success"`
-	NewPostID       string `json:"new_post_id"`
-	TargetChannelID string `json:"target_channel_id"`
+	Success          bool     `json:"success"`
+	NewPostID        string   `json:"new_post_id,omitempty"`
+	TargetChannelID  string   `json:"target_channel_id,omitempty"`
+	NewPostIDs       []string `json:"new_post_ids,omitempty"`
+	TargetChannelIDs []string `json:"target_channel_ids,omitempty"`
+	ForwardedCount   int      `json:"forwarded_count"`
 }
 type AuditRecord struct {
 	ID                string `json:"id"`

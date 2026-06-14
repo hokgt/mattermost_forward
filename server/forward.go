@@ -8,6 +8,13 @@ import (
 	"strings"
 )
 
+const maxForwardTargets = 10
+
+type resolvedForwardTarget struct {
+	Channel *model.Channel
+	Kind    string
+}
+
 func (p *Plugin) handleForward(w http.ResponseWriter, r *http.Request, userID string) {
 	if userID == "" {
 		writeError(w, http.StatusUnauthorized, "not_authenticated", "You must be logged in.")
@@ -23,11 +30,15 @@ func (p *Plugin) handleForward(w http.ResponseWriter, r *http.Request, userID st
 		writeError(w, http.StatusBadRequest, "invalid_request", "Invalid request body.")
 		return
 	}
-	req.TargetType = strings.ToLower(strings.TrimSpace(req.TargetType))
 	req.TargetTeamID = strings.TrimSpace(req.TargetTeamID)
 	req.Note = strings.TrimSpace(req.Note)
-	if req.PostID == "" || req.TargetID == "" || (req.TargetType != "channel" && req.TargetType != "user") {
-		writeError(w, http.StatusBadRequest, "invalid_request", "Post and target are required.")
+	targetReqs := normalizeForwardTargets(req)
+	if req.PostID == "" || len(targetReqs) == 0 {
+		writeError(w, http.StatusBadRequest, "invalid_request", "Post and at least one target are required.")
+		return
+	}
+	if len(targetReqs) > maxForwardTargets {
+		writeError(w, http.StatusBadRequest, "too_many_targets", fmt.Sprintf("Select up to %d users or channels.", maxForwardTargets))
 		return
 	}
 	if !req.IncludeText && !req.IncludeFiles {
@@ -56,18 +67,28 @@ func (p *Plugin) handleForward(w http.ResponseWriter, r *http.Request, userID st
 		writeError(w, http.StatusForbidden, "permission_denied", "You do not have permission to read the source message.")
 		return
 	}
-	target, targetKind, msg := p.resolveTarget(req.TargetType, req.TargetID, userID, req.TargetTeamID)
-	if msg != "" {
-		writeError(w, http.StatusBadRequest, "target_not_found", msg)
+	resolved := make([]resolvedForwardTarget, 0, len(targetReqs))
+	seenChannels := map[string]bool{}
+	for _, targetReq := range targetReqs {
+		target, targetKind, msg := p.resolveTarget(targetReq.Type, targetReq.ID, userID, req.TargetTeamID)
+		if msg != "" {
+			writeError(w, http.StatusBadRequest, "target_not_found", msg)
+			return
+		}
+		if target == nil || seenChannels[target.Id] {
+			continue
+		}
+		if !p.canPostTarget(userID, target) {
+			writeError(w, http.StatusForbidden, "permission_denied", "You do not have permission to post in one of the selected targets.")
+			return
+		}
+		seenChannels[target.Id] = true
+		resolved = append(resolved, resolvedForwardTarget{Channel: target, Kind: targetKind})
+	}
+	if len(resolved) == 0 {
+		writeError(w, http.StatusBadRequest, "invalid_request", "Select at least one unique target.")
 		return
 	}
-	if !p.canPostTarget(userID, target) {
-		writeError(w, http.StatusForbidden, "permission_denied", "You do not have permission to post in the selected target.")
-		return
-	}
-	originalUser, _ := p.API.GetUser(post.UserId)
-	forwardUser, _ := p.API.GetUser(userID)
-	copied := []string{}
 	if req.IncludeFiles {
 		if !c.AllowFileForwarding {
 			writeError(w, http.StatusForbidden, "file_forwarding_disabled", "File forwarding is disabled.")
@@ -94,6 +115,15 @@ func (p *Plugin) handleForward(w http.ResponseWriter, r *http.Request, userID st
 					}
 				}
 			}
+		}
+	}
+	originalUser, _ := p.API.GetUser(post.UserId)
+	forwardUser, _ := p.API.GetUser(userID)
+	newPostIDs := make([]string, 0, len(resolved))
+	targetChannelIDs := make([]string, 0, len(resolved))
+	for _, item := range resolved {
+		copied := []string{}
+		if req.IncludeFiles && len(post.FileIds) > 0 {
 			ids, appErr := p.API.CopyFileInfos(userID, post.FileIds)
 			if appErr != nil {
 				writeError(w, http.StatusInternalServerError, "file_copy_failed", "Could not copy attached files.")
@@ -101,18 +131,46 @@ func (p *Plugin) handleForward(w http.ResponseWriter, r *http.Request, userID st
 			}
 			copied = ids
 		}
+		newPost, appErr := p.API.CreatePost(&model.Post{UserId: userID, ChannelId: item.Channel.Id, Message: buildForwardedMessage(post, source, originalUser, forwardUser, req.Note, req.IncludeText), FileIds: copied})
+		if appErr != nil || newPost == nil {
+			writeError(w, http.StatusInternalServerError, "create_post_failed", "Could not create the forwarded post.")
+			return
+		}
+		newPostIDs = append(newPostIDs, newPost.Id)
+		targetChannelIDs = append(targetChannelIDs, item.Channel.Id)
+		rec := &AuditRecord{ID: model.NewId(), OriginalPostID: post.Id, SourceChannelID: source.Id, SourceChannelType: string(source.Type), OriginalUserID: post.UserId, ForwardedByUserID: userID, TargetChannelID: item.Channel.Id, TargetType: item.Kind, NewPostID: newPost.Id, IncludedText: req.IncludeText, IncludedFiles: len(copied) > 0, FileCount: len(copied), CreatedAt: model.GetMillis()}
+		if err := p.saveAuditRecord(rec); err != nil {
+			p.API.LogWarn("Failed to save forward audit record", "error", err.Error())
+		}
 	}
-	newPost, appErr := p.API.CreatePost(&model.Post{UserId: userID, ChannelId: target.Id, Message: buildForwardedMessage(post, source, originalUser, forwardUser, req.Note, req.IncludeText), FileIds: copied})
-	if appErr != nil || newPost == nil {
-		writeError(w, http.StatusInternalServerError, "create_post_failed", "Could not create the forwarded post.")
-		return
+	resp := ForwardResponse{Success: true, NewPostIDs: newPostIDs, TargetChannelIDs: targetChannelIDs, ForwardedCount: len(newPostIDs)}
+	if len(newPostIDs) == 1 {
+		resp.NewPostID = newPostIDs[0]
+		resp.TargetChannelID = targetChannelIDs[0]
 	}
-	rec := &AuditRecord{ID: model.NewId(), OriginalPostID: post.Id, SourceChannelID: source.Id, SourceChannelType: string(source.Type), OriginalUserID: post.UserId, ForwardedByUserID: userID, TargetChannelID: target.Id, TargetType: targetKind, NewPostID: newPost.Id, IncludedText: req.IncludeText, IncludedFiles: len(copied) > 0, FileCount: len(copied), CreatedAt: model.GetMillis()}
-	if err := p.saveAuditRecord(rec); err != nil {
-		p.API.LogWarn("Failed to save forward audit record", "error", err.Error())
-	}
-	writeJSON(w, http.StatusOK, ForwardResponse{true, newPost.Id, target.Id})
+	writeJSON(w, http.StatusOK, resp)
 }
+
+func normalizeForwardTargets(req ForwardRequest) []ForwardTargetRequest {
+	items := req.Targets
+	if len(items) == 0 && req.TargetID != "" {
+		items = []ForwardTargetRequest{{Type: req.TargetType, ID: req.TargetID}}
+	}
+	out := make([]ForwardTargetRequest, 0, len(items))
+	seen := map[string]bool{}
+	for _, item := range items {
+		t := strings.ToLower(strings.TrimSpace(item.Type))
+		id := strings.TrimSpace(item.ID)
+		key := t + ":" + id
+		if id == "" || (t != "channel" && t != "user") || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, ForwardTargetRequest{Type: t, ID: id})
+	}
+	return out
+}
+
 func (p *Plugin) resolveTarget(targetType, targetID, userID, targetTeamID string) (*model.Channel, string, string) {
 	if targetType == "channel" {
 		ch, appErr := p.API.GetChannel(targetID)
