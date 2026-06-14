@@ -105,9 +105,6 @@ func (p *Plugin) appendUserTargets(targets []TargetOption, userID, teamID, term 
 		if u == nil || u.Id == userID || u.DeleteAt != 0 {
 			continue
 		}
-		if !p.usersShareTargetTeam(userID, u.Id, teamID) {
-			continue
-		}
 		users = append(users, u)
 	}
 	sort.Slice(users, func(i, j int) bool {

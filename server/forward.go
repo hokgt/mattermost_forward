@@ -188,9 +188,6 @@ func (p *Plugin) resolveTarget(targetType, targetID, userID, targetTeamID string
 	if u, appErr := p.API.GetUser(targetID); appErr != nil || u == nil || u.DeleteAt != 0 {
 		return nil, "", "Target user was not found."
 	}
-	if !p.usersShareTargetTeam(userID, targetID, targetTeamID) {
-		return nil, "", "Target user is not in a team/group you are allowed to forward to."
-	}
 	ch, appErr := p.API.GetDirectChannel(userID, targetID)
 	if appErr != nil || ch == nil {
 		return nil, "", "Could not create or access the target DM."

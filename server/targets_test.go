@@ -128,7 +128,7 @@ func TestUserMatchesForwardSearchFullName(t *testing.T) {
 	}
 }
 
-func TestAppendUserTargetsIncludesFullNameMatches(t *testing.T) {
+func TestAppendUserTargetsIncludesFullNameMatchesAcrossTeams(t *testing.T) {
 	api := &plugintest.API{}
 	api.On("SearchUsers", mock.MatchedBy(func(search *model.UserSearch) bool {
 		return search != nil && search.Term == "Suhendri" && search.Limit == 50 && !search.AllowInactive
@@ -138,9 +138,6 @@ func TestAppendUserTargetsIncludesFullNameMatches(t *testing.T) {
 	})).Return([]*model.User{
 		{Id: "target", Username: "hok", FirstName: "Suhendri", LastName: "Wijaya"},
 	}, (*model.AppError)(nil)).Once()
-	api.On("GetTeamMember", "team1", "user1").Return(activeTeamMember("team1", "user1"), (*model.AppError)(nil)).Once()
-	api.On("GetTeamMember", "team1", "target").Return(activeTeamMember("team1", "target"), (*model.AppError)(nil)).Once()
-
 	p := &Plugin{}
 	p.API = api
 	targets := p.appendUserTargets(nil, "user1", "team1", "Suhendri")
