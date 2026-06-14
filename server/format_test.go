@@ -25,8 +25,8 @@ func TestQuoteMessage(t *testing.T) {
 }
 
 func TestBuildForwardedMessage(t *testing.T) {
-	got := buildForwardedMessage(&model.Post{Message: "hello", CreateAt: 1710000000000}, &model.Channel{DisplayName: "HR Interview"}, &model.User{Username: "bob"}, &model.User{Username: "alice"}, "Please review", true)
-	for _, want := range []string{"**Original sender:** @bob", "**Original time:**", "**Note:**", "> hello"} {
+	got := buildForwardedMessage(&model.Post{Message: "hello", CreateAt: 1710000000000}, &model.Channel{DisplayName: "HR Interview"}, &model.User{Username: "bob", FirstName: "Bob", LastName: "Smith"}, &model.User{Username: "alice"}, "Please review", true)
+	for _, want := range []string{"**Original sender:** @bob - Bob Smith", "**Original time:**", "**Note:**", "> hello"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q in %s", want, got)
 		}

@@ -12,10 +12,16 @@ func displayUser(u *model.User) string {
 	if u == nil {
 		return "unknown"
 	}
-	if u.Username != "" {
-		return "@" + u.Username
+	username := strings.TrimSpace(u.Username)
+	if username == "" {
+		return u.Id
 	}
-	return u.Id
+	label := "@" + username
+	fullName := strings.TrimSpace(strings.Join([]string{strings.TrimSpace(u.FirstName), strings.TrimSpace(u.LastName)}, " "))
+	if fullName != "" {
+		label += " - " + fullName
+	}
+	return label
 }
 
 func displayChannel(c *model.Channel) string {
